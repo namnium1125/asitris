@@ -1,0 +1,1391 @@
+<!-- asitris ver 0.9955
+回転法則参考:
+http://www13.plala.or.jp/TETRiS_TGM/kouza/1.htm
+
+今回は「セガ(クラシック)ルール」
+よってスーパーローテーション(以後SRS)は未実装
+また、最大は20Gではなく1G。
+ミノのカラーはhttp://flatuicolors.com
+を参考にしました。
+tのみ、ツイッターと同じ#00ACEDです。
+☆得点計算 : // http://www.geocities.jp/frnyanko/setsumei/famicom/tetris/tetris.html
+参照。一部改(個人的にテキトーに)
+
+落下得点 : 意図的に落としたマス×1点
+ライン消し得点 :
+1lines : 10
+2lines : 25
+3lines : 40
+Tetris : 70
+
+☆レベルアップ
+10ライン消しで速度1.2倍になります。
+-->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Improve 2_1 -->
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no">
+<title>asitris</title>
+<script>
+function setGame(){
+// グローバル変数①_1
+var VERSION = 0.9956;
+var hp30 = (window.innerHeight)/30;
+
+// 画面の初期化
+document.body.innerHTML = "";
+
+// フレームの用意 Improve 2_2
+var elGameFrame = document.createElement("div");
+var elFadeFrame = document.createElement("div");
+var EGFsty = elGameFrame.style;
+var EFFsty = elFadeFrame.style;
+EGFsty.position = "absolute";
+EFFsty.position = "absolute";
+EGFsty.top = "0px";
+EFFsty.top = "0px";
+if(window.innerWidth>(20*hp30)){
+    EGFsty.left = ((window.innerWidth/2)-10*hp30)+"px";
+}else{
+    EGFsty.left = "0px";
+}
+EGFsty.width = 20*hp30+"px";
+EFFsty.left = "0px";
+EFFsty.width = "100%";
+EGFsty.height = "100%";
+EFFsty.height = "100%";
+EFFsty.background = "#000000";
+EFFsty.opacity = "0.5";
+EFFsty.visibility = "hidden";
+EFFsty.zIndex = "1";
+
+document.body.appendChild(elGameFrame);
+document.body.appendChild(elFadeFrame);
+
+function fade(){
+    EFFsty.visibility = "visible";
+}
+
+function removeFade(){
+    EFFsty.visibility = "hidden";
+}
+
+// フィールドマスの用意
+var table = [];
+var elMass = [];
+for(var y=0;y<22;y++){
+    table[y] = [];
+    for(var x=0;x<12;x++){
+        table[y][x] = 1;
+    }
+    table[y][0] = 0;
+    table[y][11] = 0;
+}
+for(var x=0;x<12;x++){
+    table[21][x] = 0;
+}
+
+// グローバル変数等①_2
+var score = 0;
+var lv = 0;
+var lines = 0;
+var nextMass = [];
+
+// デフォルト値でありクッキーを利用して書き換える
+var keyKind = {
+    // pause : 243,
+    A : 32, // 1
+    B : 13, // 2
+    hd : 38, // 3
+    right : 39, // 4
+    left : 37, // 5
+    down : 40 // 6
+}
+
+var dck = document.cookie;
+Object.keys(keyKind).forEach(function(key){
+    var keyE = key+"=";
+    var posi = dck.indexOf(keyE);
+    if(posi!=-1){
+        var startIndex = posi + keyE.length;
+        var endIndex = dck.indexOf(";",startIndex);
+        if(endIndex==-1){
+            endIndex = dck.length;
+        }
+        keyKind[key] = parseInt(dck.substring(startIndex,endIndex));
+    }
+},keyKind);
+
+// keyNumは651行付近で使用
+function keyNum(k){
+    switch(k){
+        /* case keyKind.pause:
+            return k;*/
+        case keyKind.A:
+            return 1;
+        case keyKind.B:
+            return 2;
+        case keyKind.hd:
+            return 3;
+        case keyKind.right:
+            return 4;
+        case keyKind.left:
+            return 5;
+        case keyKind.down:
+            return 6;
+        default:
+            return 0;
+    }
+}
+
+/* ここからごちゃごちゃゾーン！！！ */
+// ポーズ&ダイアログ Improve 2_3
+var elPauseButton = document.createElement("button");
+elPauseButton.style.background = "#FFFFFF";
+elPauseButton.style.position = "absolute";
+elPauseButton.style.top = 5+"px";
+elPauseButton.style.left = 9*hp30+"px";
+elPauseButton.style.height = hp30+"px";
+elPauseButton.style.width = 3*hp30+"px";
+elPauseButton.style.borderRadius = "5px";
+elPauseButton.style.fontSize = 0.5*hp30+"px";
+elPauseButton.innerHTML = "PAUSE";
+
+var elDialogBox = document.createElement("div");
+var EDBsty = elDialogBox.style;
+EDBsty.position = "absolute";
+EDBsty.top = 4*hp30+"px";
+EDBsty.height = 20*hp30+"px";
+EDBsty.width = 14*hp30+"px";
+EDBsty.left = 3*hp30+"px";
+EDBsty.background = "#FFFFFF";
+EDBsty.visibility = "hidden";
+EDBsty.zIndex = "2";
+EDBsty.textAlign = "center";
+
+var pauseTime1;
+var pauseTime2;
+
+function showPause(){
+    pauseTime1 = getPsTime();
+    oneFrame = function(){};
+    fade();
+    Xfunc = pauseClear;
+    EDBsty.visibility = "visible";
+    G1sty.display = "inline";
+}
+
+function pauseClear(){
+    G1sty.display = "none";
+    G2sty.display = "none";
+    G3sty.display = "none";
+    BTG1sty.display = "none";
+    EDBsty.visibility = "hidden";
+    removeFade();
+    pauseTime2 = getPsTime();
+    startTime += (pauseTime2-pauseTime1);
+    oneFrame = function(){
+        func();
+        showPastTime();
+    }
+}
+
+elPauseButton.addEventListener("click",showPause,false);
+elGameFrame.appendChild(elPauseButton);
+elGameFrame.appendChild(elDialogBox);
+
+var elGroup1 = document.createElement("div");
+var G1sty = elGroup1.style;
+var elGroup2 = document.createElement("div");
+var G2sty = elGroup2.style;
+var elGroup3 = document.createElement("div");
+var G3sty = elGroup3.style;
+var elGroup4 = document.createElement("div");
+var G4sty = elGroup4.style;
+
+var elXbutton = document.createElement("button");
+var XBsty = elXbutton.style;
+var elVersionCard = document.createElement("div");
+var VCsty = elVersionCard.style;
+
+var elPauseStr = document.createElement("span");
+var PSTRsty = elPauseStr.style;
+var elMessageButton = document.createElement("button");
+var MESSBTsty = elMessageButton.style;
+var elKeyConButton = document.createElement("button");
+var KCBsty = elKeyConButton.style;
+var elReset = document.createElement("button");
+var RESETsty = elReset.style;
+var elResume = document.createElement("button");
+var RESUMEsty = elResume.style;
+
+// グループ 4つにもなると思っていなかったので配列化してません！スミマセン！
+G1sty.textAlign = "center";
+G2sty.textAlign = "center";
+G3sty.textAlign = "center";
+G4sty.textAlign = "center";
+G1sty.display = "none";
+G2sty.display = "none";
+G3sty.display = "none";
+G4sty.display = "none";
+
+elDialogBox.appendChild(elGroup1);
+elDialogBox.appendChild(elGroup2);
+elDialogBox.appendChild(elGroup3);
+elDialogBox.appendChild(elGroup4);
+
+// パーツ
+XBsty.position = "absolute";
+XBsty.top = "0px";
+XBsty.left = 11*hp30+"px";
+XBsty.height = 2*hp30+"px";
+XBsty.width = 3*hp30+"px";
+XBsty.background = "#FFFFFF";
+XBsty.fontSize = 0.8*hp30+"px";
+elXbutton.innerHTML = "X";
+var Xfunc;
+elXbutton.addEventListener("click",function(){Xfunc();},false);
+elDialogBox.appendChild(elXbutton);
+
+VCsty.position = "absolute";
+VCsty.top = 18.5*hp30+"px";
+VCsty.left = "0px";
+VCsty.height = 2*hp30+"px";
+VCsty.width = 6*hp30+"px";
+VCsty.fontSize = 0.8*hp30+"px";
+VCsty.color = "gray";
+elVersionCard.innerHTML = "Ver "+VERSION;
+
+elDialogBox.appendChild(elVersionCard);
+
+// グループ1
+
+PSTRsty.position = "absolute";
+PSTRsty.top = hp30+"px";
+PSTRsty.left = 4*hp30+"px";
+PSTRsty.height = 2*hp30+"px";
+PSTRsty.width = 6*hp30+"px";
+PSTRsty.color = "gray";
+PSTRsty.fontSize = 1.6*hp30+"px";
+PSTRsty.textAlign = "center";
+elPauseStr.innerHTML = "PAUSE";
+elGroup1.appendChild(elPauseStr);
+
+MESSBTsty.background = "#FFFFFF";
+MESSBTsty.position = "absolute";
+MESSBTsty.top = 4*hp30+"px";
+MESSBTsty.left = 2*hp30+"px";
+MESSBTsty.height = 2*hp30+"px";
+MESSBTsty.width = 10*hp30+"px";
+MESSBTsty.fontSize = 0.8*hp30+"px";
+elMessageButton.innerHTML = "お知らせ message";
+elMessageButton.addEventListener("click",function(e){
+    G1sty.display = "none";
+    G2sty.display = "inline";
+    BTG1sty.display = "inline";
+},false);
+
+elGroup1.appendChild(elMessageButton);
+
+KCBsty.background = "#FFFFFF";
+KCBsty.position = "absolute";
+KCBsty.top = 7*hp30+"px";
+KCBsty.left = 2*hp30+"px";
+KCBsty.height = 2*hp30+"px";
+KCBsty.width = 10*hp30+"px";
+KCBsty.fontSize = 0.8*hp30+"px";
+elKeyConButton.innerHTML = "キー設定 key config";
+elKeyConButton.addEventListener("click",function(e){
+    G1sty.display = "none";
+    G3sty.display = "inline";
+    BTG1sty.display = "inline";
+},false);
+elGroup1.appendChild(elKeyConButton);
+
+RESETsty.background = "#FFFFFF";
+RESETsty.position = "absolute";
+RESETsty.top = 10*hp30+"px";
+RESETsty.left = 2*hp30+"px";
+RESETsty.height = 2*hp30+"px";
+RESETsty.width = 10*hp30+"px";
+RESETsty.fontSize = 0.8*hp30+"px";
+elReset.innerHTML = "リセット reset";
+elReset.addEventListener("click",function(e){
+    setGame();
+},false);
+elGroup1.appendChild(elReset);
+
+RESUMEsty.background = "#FFFFFF";
+RESUMEsty.position = "absolute";
+RESUMEsty.top = 13*hp30+"px";
+RESUMEsty.left = 2*hp30+"px";
+RESUMEsty.height = 2*hp30+"px";
+RESUMEsty.width = 10*hp30+"px";
+RESUMEsty.fontSize = 0.8*hp30+"px";
+elResume.innerHTML = "再開 resume";
+elResume.addEventListener("click",function(){
+    pauseClear();
+},false);
+elGroup1.appendChild(elResume);
+
+// グループ1へ戻る
+var elBackToG1 = document.createElement("button");
+var BTG1sty = elBackToG1.style;
+BTG1sty.position = "absolute";
+BTG1sty.top = 16*hp30+"px";
+BTG1sty.left = 2*hp30+"px";
+BTG1sty.height = 2*hp30+"px";
+BTG1sty.width = 10*hp30+"px";
+BTG1sty.background = "#FFFFFF";
+BTG1sty.fontSize = 0.8*hp30+"px";
+elBackToG1.innerHTML = "戻る back";
+elBackToG1.addEventListener("click",function(e){
+    G2sty.display = "none";
+    G3sty.display = "none";
+    G1sty.display = "inline";
+    BTG1sty.display = "none";
+},false);
+
+BTG1sty.display = "none";
+elDialogBox.appendChild(elBackToG1);
+
+// グループ2 Message
+var elMessage = document.createElement("div");
+var MESSsty = elMessage.style;
+
+MESSsty.position = "absolute";
+MESSsty.top = 2*hp30+"px";
+MESSsty.left = 2*hp30+"px";
+MESSsty.width = 10*hp30+"px";
+MESSsty.height = 10*hp30+"px";
+MESSsty.fontSize = 0.8*hp30+"px";
+elMessage.innerHTML = "<span>この度はasitrisをプレイしていただき誠にありがとうございます。より快適にプレイしていただけるよう、さらに努力したいと思います。よろしくお願いします。<br>m(_ _)m</span><br><br><div style='text-align:center;'>開発者namnより</div>";
+
+elGroup2.appendChild(elMessage);
+
+// グループ3 keyConfig
+
+var elPCONLY = document.createElement("div");
+elPCONLY.style.position = "absolute";
+elPCONLY.style.top = hp30+"px";
+elPCONLY.style.left = 2*hp30+"px";
+elPCONLY.style.fontSize = 0.8*hp30+"px";
+elPCONLY.innerHTML = "<span style='color:gray'>CONFIG</span> <span style='font-size:8px;'>※PCのみ。<br>()内はデフォルト値</span>";
+elGroup3.appendChild(elPCONLY);
+
+var elKeySet = document.createElement("div");
+var KSsty = elKeySet.style;
+var elKEYCODEstr = document.createElement("div");
+var KCSsty = elKEYCODEstr.style;
+var elKeyCode = document.createElement("div");
+var KCsty = elKeyCode.style;
+
+var elSave = document.createElement("button");
+var SAVEsty = elSave.style;
+
+KSsty.position = "absolute";
+KSsty.top = 3*hp30+"px";
+KSsty.left = 2*hp30+"px";
+KSsty.height = 10*hp30+"px";
+KSsty.width = 10*hp30+"px";
+KSsty.fontSize = 0.6*hp30+"px";
+
+elKeySet.innerHTML = "<table><tr><td>A(32:sp) :</td><td><input type='text' size='5' id='aSet' value='"+keyKind.A+"'></input></td></tr><tr><td>B(13:etr) :</td><td><input type='text' size='5' id='bSet' value='"+keyKind.B+"'></input></td></tr><tr><td>hd(38:↑) :</td><td><input type='text' size='5' id='hdSet' value='"+keyKind.hd+"'></input></td></tr><tr><td>right(39:→) :</td><td><input type='text' size='5' id='rightSet' value='"+keyKind.right+"'></input></td></tr><tr><td>left(37:←) :</td><td><input type='text' size='5' id='leftSet' value='"+keyKind.left+"'></input></td></tr><tr><td>down(40:↓) :</td><td><input type='text' size='5' id='downSet' value='"+keyKind.down+"'></input></td></tr></table>";
+
+elGroup3.appendChild(elKeySet);
+
+KCSsty.position = "absolute";
+KCSsty.top = 13*hp30+"px";
+KCSsty.left = hp30+"px";
+KCSsty.fontSize = 0.6*hp30+"px";
+elKEYCODEstr.innerHTML = "press any key<br>KEY CODE : ";
+
+elGroup3.appendChild(elKEYCODEstr);
+
+KCsty.position = "absolute";
+KCsty.top = 13.5*hp30+"px";
+KCsty.left = 6*hp30+"px";
+KCsty.fontSize = 0.8*hp30+"px";
+
+elGroup3.appendChild(elKeyCode);
+
+function checkKeyCode(k){
+    elKeyCode.innerHTML = k;
+}
+
+SAVEsty.position = "absolute";
+SAVEsty.top = 13*hp30+"px";
+SAVEsty.left = 9*hp30+"px";
+SAVEsty.height = 1.5*hp30+"px";
+SAVEsty.width = 4*hp30+"px";
+SAVEsty.background = "#FFFFFF";
+SAVEsty.fontSize = 0.6*hp30+"px";
+elSave.innerHTML = "保存 save";
+
+elSave.addEventListener("click",function(e){
+    var a = parseInt(document.getElementById("aSet").value);
+    var b = parseInt(document.getElementById("bSet").value);
+    var hd = parseInt(document.getElementById("hdSet").value);
+    var right = parseInt(document.getElementById("rightSet").value);
+    var left = parseInt(document.getElementById("leftSet").value);
+    var down = parseInt(document.getElementById("downSet").value);
+    if(a===a&&b===b&&hd===hd&&right===right&&left===left&&down===down){
+        keyKind.A = a;
+        keyKind.B = b;
+        keyKind.hd = hd;
+        keyKind.right = right;
+        keyKind.left = left;
+        keyKind.down = down;
+        document.cookie = "A"+"="+a;
+        document.cookie = "B"+"="+b;
+        document.cookie = "hd"+"="+hd;
+        document.cookie = "right"+"="+right;
+        document.cookie = "left"+"="+left;
+        document.cookie = "down"+"="+down;
+        document.cookie = "max-age="+259200;
+    }
+},false);
+
+elGroup3.appendChild(elSave);
+
+// グループ4 GameOver!
+
+var elGameOverStr = document.createElement("div");
+var GOSsty = elGameOverStr.style;
+GOSsty.position = "absolute";
+GOSsty.top = 3*hp30+"px";
+GOSsty.left = hp30+"px";
+GOSsty.height = 2*hp30+"px";
+GOSsty.width = 12*hp30+"px";
+GOSsty.textAlign = "center";
+GOSsty.fontSize = 1.6*hp30+"px";
+elGameOverStr.innerHTML = "GAME OVER!";
+
+elGroup4.appendChild(elGameOverStr);
+
+var elContinueStr = document.createElement("div");
+var CSsty = elContinueStr.style;
+CSsty.position = "absolute";
+CSsty.top = 7*hp30+"px";
+CSsty.left = 4*hp30+"px";
+CSsty.height = 2*hp30+"px";
+CSsty.width = 6*hp30+"px";
+CSsty.textAlign = "center";
+CSsty.fontSize = 0.8*hp30+"px";
+CSsty.color = "gray";
+elContinueStr.innerHTML = "CONTINUE?";
+
+elGroup4.appendChild(elContinueStr);
+
+var elYesButton = document.createElement("button");
+var YBsty = elYesButton.style;
+YBsty.position = "absolute";
+YBsty.top = 10*hp30+"px";
+YBsty.left = 4*hp30+"px";
+YBsty.height = 2*hp30+"px";
+YBsty.width = 6*hp30+"px";
+YBsty.background = "#FFFFFF";
+YBsty.fontSize = 0.8*hp30+"px";
+elYesButton.innerHTML = "はい yes";
+elYesButton.addEventListener("click",function(e){
+    setGame();
+},false);
+
+elGroup4.appendChild(elYesButton);
+
+var elNoButton = document.createElement("button");
+var NBsty = elNoButton.style;
+NBsty.position = "absolute";
+NBsty.top = 13*hp30+"px";
+NBsty.left = 4*hp30+"px";
+NBsty.height = 2*hp30+"px";
+NBsty.width = 6*hp30+"px";
+NBsty.background = "#FFFFFF";
+NBsty.fontSize = 0.8*hp30+"px";
+elNoButton.innerHTML = "いいえ no";
+elNoButton.addEventListener("click",function(e){
+    closeGODialog();
+},false);
+
+elGroup4.appendChild(elNoButton);
+
+/* ごちゃごちゃゾーンここまで！ */
+
+function initField(){
+    // fieldの設定
+    var elField = document.createElement("div");
+    elField.style.position = "absolute";
+    elField.style.top = 2*hp30+"px";
+    elField.style.left = 2*hp30+"px";
+    elField.style.height = 20*hp30+"px";
+    elField.style.width = 10*hp30+"px";
+    elField.style.border = "1px solid #000000"; // 必要に応じてコメントアウト
+    // elField.style.border = "1px solid #FFFFFF";
+    elGameFrame.appendChild(elField);
+    var e;
+    for(var y=0;y<22;y++){
+        elMass[y] = [];
+        for(var x=0;x<12;x++){
+            elMass[y][x] = document.createElement("div");
+            e = elMass[y][x];
+            e.style.position = "absolute";
+            e.style.top = (y-1)*hp30+"px";
+            e.style.left = (x-1)*hp30+"px";
+            e.style.height = (hp30-1)+"px";
+            e.style.width = (hp30-1)+"px";
+            // e.style.border = "1px dotted gray"; // 必要に応じてコメントアウト
+            // e.style.border = "1px solid #FFFFFF";
+            elField.appendChild(e);
+        }
+    }
+    for(var x=0;x<12;x++){
+        elMass[0][x].style.visibility = "hidden";
+        elMass[21][x].style.visibility = "hidden";
+    }
+    for(var y=1;y<21;y++){
+        elMass[y][0].style.visibility = "hidden";
+        elMass[y][11].style.visibility = "hidden";
+    }
+    e = 0;
+
+    // ボタンへの設定 Improve 1_3
+    var btKinds = ["aButton","bButton","upButton","rightButton","leftButton","downButton"];
+    var elBt = {};
+    for(var i=0;i<6;i++){
+        elBt[btKinds[i]] = document.createElement("div");
+        e = elBt[btKinds[i]];
+        e.style.position = "absolute";
+        e.style.border = "3px groove #99FFFF";
+        e.style.color = "#99FFFF";
+        e.style.fontSize = 1.5*hp30+"px";
+        e.index = i+1;
+        e.addEventListener("touchstart",function(event){
+            event.preventDefault();
+            btState = this.index;
+            this.style.border = "3px ridge #FFFFFF";
+            this.style.background = "#99FFFF";
+            this.style.color = "#FFFFFF";
+        },false);
+        e.addEventListener("mousedown",function(event){
+            event.preventDefault();
+            btState = this.index;
+            this.style.border = "3px ridge #FFFFFF";
+            this.style.background = "#99FFFF";
+            this.style.color = "#FFFFFF";
+        },false);
+        e.addEventListener("touchend",function(){
+            btState = 0;
+            preBtState = 0;
+            btCharge = false;
+            this.style.border = "3px groove #99FFFF";
+            this.style.background = "#FFFFFF";
+            this.style.color = "#99FFFF";
+        },false);
+        e.addEventListener("mouseup",function(){
+            btState = 0;
+            preBtState = 0;
+            btCharge = false;
+            this.style.border = "3px groove #99FFFF";
+            this.style.background = "#FFFFFF";
+            this.style.color = "#99FFFF";
+        },false);
+        elGameFrame.appendChild(e);
+    }
+    // 個別設定
+    var b;
+    // Aボタン
+    b = elBt["aButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = "A";
+    b.style.top = 23*hp30+"px";
+    b.style.left = 13*hp30+"px";
+    b.style.height = 2*hp30+"px";
+    b.style.width = 3*hp30+"px";
+    // Bボタン
+    b = elBt["bButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = "B";
+    b.style.top = 26*hp30+"px";
+    b.style.left = 14*hp30+"px";
+    b.style.height = 2*hp30+"px";
+    b.style.width = 3*hp30+"px";
+    // #ボタン
+    b = elBt["upButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = "#";
+    b.style.top = 19*hp30+"px";
+    b.style.left = 13*hp30+"px";
+    b.style.height = 2*hp30+"px";
+    b.style.width = 2*hp30+"px";
+    // >(＞)ボタン
+    b = elBt["rightButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = ">";
+    b.style.top = 23*hp30+"px";
+    b.style.left = 8*hp30+"px";
+    b.style.height = 2*hp30+"px";
+    b.style.width = 3*hp30+"px";
+    // <(＜)ボタン
+    b = elBt["leftButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = "<";
+    b.style.top = 23*hp30+"px";
+    b.style.left = hp30+"px";
+    b.style.height = 2*hp30+"px";
+    b.style.width = 3*hp30+"px";
+    // Vボタン
+    b = elBt["downButton"];
+    b.style.textAlign = "center";
+    b.innerHTML = "V";
+    b.style.top = 25*hp30+"px";
+    b.style.left = 5*hp30+"px";
+    b.style.height = 3*hp30+"px";
+    b.style.width = 2*hp30+"px";
+
+    // キーボードの設定
+    document.addEventListener("keydown",function(event){
+    var n = keyNum(event.keyCode);
+    if(n!=0){
+      event.preventDefault();
+      btState = n;
+    }
+    checkKeyCode(event.keyCode);
+},false);
+
+document.addEventListener("keyup",function(event){
+    if(btState==keyNum(event.keyCode)){
+        btState = 0;
+        preBtState = 0;
+        btCharge = false;
+    }
+},false);
+
+    // パラメータの設定 : 助長表現になってます。本来はcssで一括で設定するべき所。用意すんのがめんどかったからいちいち書きました。
+    var elScore = document.createElement("div");
+    var elLv = document.createElement("div");
+    var elLines = document.createElement("div");
+    elScore.style.fontSize = 0.8*hp30+"px";
+    elLv.style.fontSize = 0.8*hp30+"px";
+    elLines.style.fontSize = 0.8*hp30+"px";
+    elScore.style.textAlign = "center";
+    elLv.style.textAlign = "center";
+    elLines.style.textAlign = "center";
+    elScore.style.position = "absolute";
+    elLv.style.position = "absolute";
+    elLines.style.position = "absolute";
+    elScore.style.top = 3*hp30+"px";
+    elScore.style.left = 13*hp30+"px";
+    elScore.style.height = 2*hp30+"px";
+    elScore.style.width = 5*hp30+"px";
+    elScore.style.border = "3px dotted gray";
+    elScore.innerHTML = "SCORE<div id='score'>0</div>";
+    elLv.style.top = 6*hp30+"px";
+    elLv.style.left = 13*hp30+"px";
+    elLv.style.height = 2*hp30+"px";
+    elLv.style.width = 5*hp30+"px";
+    elLv.style.border = "3px dotted gray";
+    elLv.innerHTML = "Lv<div id='lv'>"+lv+"</div>";
+    elLines.style.top = 9*hp30+"px";
+    elLines.style.left = 13*hp30+"px";
+    elLines.style.height = 2*hp30+"px";
+    elLines.style.width = 5*hp30+"px";
+    elLines.style.border = "3px dotted gray";
+    elLines.innerHTML = "LINES<div id='lines'>0</div>";
+    elGameFrame.appendChild(elScore);
+    elGameFrame.appendChild(elLv);
+    elGameFrame.appendChild(elLines);
+    // next表示
+    var elNext = document.createElement("div");
+    elNext.style.fontSize = 0.8*hp30+"px";
+    elNext.style.textAlign = "center";
+    elNext.style.position = "absolute";
+    elNext.style.top = 12*hp30+"px";
+    elNext.style.left = 13*hp30+"px";
+    elNext.style.height = 5*hp30+"px";
+    elNext.style.width = 5*hp30+"px";
+    elNext.style.border ="3px dotted gray";
+    elNext.innerHTML = "NEXT";
+    var n;
+    for(var y=0;y<3;y++){
+        nextMass[y] = [];
+        for(var x=0;x<4;x++){
+            nextMass[y][x] = document.createElement("div");
+            n = nextMass[y][x];
+            n.style.position = "absolute";
+            n.style.top = (1+y)*hp30+"px";
+            n.style.left = (1+x)*hp30+"px";
+            n.style.height = (hp30-1)+"px";
+            n.style.width = (hp30-1)+"px";
+            // n.style.border = "1px dotted gray"; // 必要に応じてコメントアウト
+            // n.style.border = "1px solid #FFFFFF";
+            elNext.appendChild(n);
+        }
+    }
+    elGameFrame.appendChild(elNext);
+    // 経過時間表示
+    elTime = document.createElement("div");
+    elTime.style.position = "absolute";
+    elTime.style.top = 2+"px";
+    elTime.style.left = 13*hp30+"px";
+    elTime.style.height = 2*hp30+"px";
+    elTime.style.width = 5*hp30+"px";
+    elTime.style.fontSize = 0.8*hp30+"px";
+    elTime.style.textAlign = "center";
+    elTime.style.border = "3px dotted gray";
+    elTime.innerHTML = "TIME<br><span id='min'>0</span>:<span id='sec'>0</span>";
+    elGameFrame.appendChild(elTime);
+    // タイトルとフッター
+    var elTitl = document.createElement("div");
+    elTitl.style.color = "blue";
+elTitl.innerHTML = "asitris : classic rule";
+    elTitl.style.position = "absolute";
+    elTitl.style.left = hp30+"px";
+    elTitl.style.fontSize = 0.8*hp30+"px";
+    elGameFrame.appendChild(elTitl);
+    var elFoot = document.createElement("footer");
+    elFoot.style.position = "absolute";
+    elFoot.style.top = (29*hp30-5)+"px";
+    elFoot.innerHTML = "Copyright © 2017 namnium All Rights Reserved.";
+    elFoot.style.fontSize = 0.8*hp30+"px";
+    elFoot.style.color = "gray";
+    elGameFrame.appendChild(elFoot);
+}
+
+function addElScore(d){
+    score += d;
+    document.getElementById("score").innerHTML = score;
+}
+
+var nextLvUp = 0;
+
+function addElLines(){
+    nextLvUp++;
+    if(nextLvUp >= 10){
+        nextLvUp -= 10;
+        addElLv();
+    }
+    document.getElementById("lines").innerHTML = ++lines;
+}
+
+function addElLv(){
+    if(dropG<1){
+        dropG *= 1.2;
+    }else if(dropG>1){
+        dropG = 1;
+    }
+    document.getElementById("lv").innerHTML = ++lv;
+}
+
+// 座標関連関数
+// 値渡し用関数
+function subsPos(p1,p2){
+    p1[0] = p2[0];
+    p1[1] = p2[1];
+}
+function subsPos4(a1,a2){
+    for(var i=0;i<4;i++){
+        subsPos(a1[i],a2[i]);
+    }
+}
+function addPos(p,delt){
+    p[0] += delt[0];
+    p[1] += delt[1];
+}
+function addPos4(a,delt){
+    for(var i= 0;i<4;i++){
+        addPos(a[i],delt[i]);
+    }
+}
+
+function subsAddPos4(a1,a2,delt){
+    for(var i=0;i<4;i++){
+        subsPos(a1[i],a2[i]);
+        addPos(a1[i],delt[i]);
+    }
+}
+// 1か0か確認
+function checkPos(p){
+    try{
+        return table[p[1]][p[0]] == 1;
+    }catch(e){
+        return false;
+    }
+}
+function checkPos4(a){
+    return checkPos(a[0])&&checkPos(a[1])&&checkPos(a[2])&&checkPos(a[3]);
+}
+
+// グローバル変数等②
+
+//以下パラメータ。すべて操作中ミノに関係。あまりいい構造ではないけど、どれもグローバル変数で、すべての関数からのアクセスを認めます。
+var acm = [[0,0],[0,0],[0,0],[0,0]]; // activeMassの略。動いているマスの座標。0が中心座標。他は適宜。
+var bsk; // blockspinKindの略。現在のブロックの回転法則が書かれた配列を格納
+var nextSpin = 0; // bsk用のインデックス
+var blockColor; // 名前の通り色を格納。
+
+var mino = {
+    t: {
+        start: [[5,1],[4,1],[6,1],[5,2]],
+        // 3次配列。[[A[移動先,次の回転],B[移動先,次の回転]],,...]
+        spin:[
+//t0  102
+//     3
+              [[[[0,0],[1,-1],[0,0],[0,0]],1],
+               [[[0,0],[0,0],[-1,-1],[0,0]],3]],
+//t1  1
+//    02
+//    3
+              [[[[0,0],[-1,2],[0,1],[0,0]],2],
+               [[[0,0],[-1,1],[0,0],[0,0]],0]],
+//t2  0
+//   132
+              [[[[0,0],[0,-1],[-1,-2],[0,0]],3],
+               [[[0,0],[1,-2],[0,-1],[0,0]],1]],
+//t3  2
+//   10
+//    3
+              [[[[0,0],[0,0],[1,1],[0,0]],0],
+               [[[0,0],[0,1],[1,2],[0,0]],2]]
+              ],
+        color: "#00AECD" // TWITTER
+    },
+    j: {
+        start: [[5,1],[4,1],[6,1],[6,2]],
+        spin:[
+//j0 102
+//     3
+              [[[[0,0],[1,-1],[0,-1],[-1,0]],1],
+               [[[0,0],[1,-1],[-2,1],[-1,0]],3]],
+//j1  12
+//    0
+//    3
+              [[[[0,1],[-1,1],[-2,2],[1,0]],2],
+               [[[0,0],[-1,1],[0,1],[1,0]],0]],
+//j2 1
+//   203
+              [[[[0,-1],[1,-1],[0,0],[-1,0]],3],
+               [[[0,-1],[1,-1],[2,-2],[-1,0]],1]],
+//j3  1
+//    0
+//   23
+              [[[[0,0],[-1,1],[2,-1],[1,0]],0],
+               [[[0,1],[-1,1],[0,0],[1,0]],2]]
+              ],
+        color: "#2980B9" // BELIZE HOLE
+    },
+    l: {
+        start: [[5,1],[4,1],[6,1],[4,2]],
+        spin:[
+//l0 102
+//   3
+              [[[[0,0],[1,-1],[-1,1],[2,0]],1],
+               [[[0,0],[0,-1],[-1,-1],[1,0]],3]],
+//l1  1
+//    0
+//    23
+              [[[[0,1],[1,1],[-1,0],[0,0]],2],
+               [[[0,0],[-1,1],[1,-1],[-2,0]],0]],
+//l2   1
+//   203
+              [[[[0,-1],[-2,-1],[1,-2],[-1,0]],3],
+               [[[0,-1],[-1,-1],[1,0],[0,0]],1]],
+//l3 12
+//    0
+//    3
+              [[[[0,0],[0,1],[1,1],[-1,0]],0],
+               [[[0,1],[2,1],[-1,2],[1,0]],2]]
+             ],
+        color: "#E67E22" // CARROT
+    },
+    z: {
+        start: [[5,1],[4,1],[5,2],[6,2]],
+        spin:[
+//z0 10
+//    23
+              [[[[0,0],[2,-1],[1,-1],[-1,0]],1],
+               [[[0,0],[2,-1],[1,-1],[-1,0]],1]],
+//z1   1
+//    02
+//    3
+              [[[[0,0],[-2,1],[-1,1],[1,0]],0],
+               [[[0,0],[-2,1],[-1,1],[1,0]],0]]
+             ],
+        color: "#2ECC71" // EMERALD
+    },
+    s: {
+        start: [[5,1],[6,1],[4,2],[5,2]],
+        spin:[
+//s0  01
+//   23
+              [[[[0,0],[-2,-1],[0,-1],[0,0]],1],
+               [[[0,0],[-2,-1],[0,-1],[0,0]],1]],
+//s1 1
+//   20
+//    3
+              [[[[0,0],[2,1],[0,1],[0,0]],0],
+               [[[0,0],[2,1],[0,1],[0,0]],0]]
+             ],
+        color: "#9B59B6" // AMETHYST
+    },
+    i: {
+        start: [[6,1],[4,1],[5,1],[7,1]],
+        spin:[
+//i0 1203
+              [[[[0,0],[2,-1],[1,1],[-1,2]],1],
+               [[[0,0],[2,-1],[1,1],[-1,2]],1]],
+//i1   1
+//     0
+//     2
+//     3
+              [[[[0,0],[-2,1],[-1,-1],[1,-2]],0],
+               [[[0,0],[-2,1],[-1,-1],[1,-2]],0]]
+             ],
+        color: "#C0392B" // POMEGRANATE
+    },
+    o: {
+        start: [[5,1],[6,1],[5,2],[6,2]],
+        spin:[
+              [[[[0,0],[0,0],[0,0],[0,0]],0],
+               [[[0,0],[0,0],[0,0],[0,0]],0]],
+             ],
+         color: "#F1C40F" // FLOWER
+    }
+};
+
+// notPress: 0
+// A       : 1
+// B       : 2
+// up(hd)  : 3
+// right   : 4
+// left    : 5
+// down    : 6
+
+// 操作関数
+function btCheck(){
+    switch(btState){
+        case 0: break;
+        case 1: if(preBtState != 1){
+                    spinAc(acm,bsk[nextSpin][0]);
+                    preBtState = 1;
+                }
+                break;
+        case 2: if(preBtState != 2){
+                    spinAc(acm,bsk[nextSpin][1]);
+                    preBtState = 2;
+                }
+                break;
+        case 3: if(preBtState != 3){
+                    hardDrop();
+                    preBtState = 3;
+                }
+                break;
+        case 4: if(preBtState != 4){
+                    moveAc(4);
+                    preBtState = 4;
+                    pressTime = getPsTime();
+                }else if(btCharge){
+                    moveAc(4);
+                }else if((getPsTime()-pressTime)>=200){
+                        btCharge = true;
+                }
+                break;
+        case 5: if(preBtState != 5){
+                    moveAc(5);
+                    preBtState = 5;
+                    pressTime = getPsTime();
+                }else if(btCharge){
+                    moveAc(5);
+                }else if((getPsTime()-pressTime)>=200){
+                        btCharge = true;
+                }
+                break;
+        case 6: if(moveAc(6)) addElScore(1);
+                break;
+        default: alert("error");
+                 break;
+    }
+}
+
+var hdCount = 0;
+
+function hardDrop(){
+    while(checkPos4(acm)){
+        addPos4(acm,[[0,1],[0,1],[0,1],[0,1]]);
+        hdCount++;
+    }
+    addPos4(acm,[[0,-1],[0,-1],[0,-1],[0,-1]]);
+    addElScore(--hdCount);
+    hdCount = 0;
+    fixAc();
+}
+
+function moveAc(dir){
+    var a2 = [[0,0],[0,0],[0,0],[0,0]];
+    subsPos4(a2,acm);
+if(checkPos4(subMoveAc(a2,dir))){
+        subsPos4(acm,a2);
+        return true;
+    }else{
+        return false;
+    }
+}
+
+// 回転関数 こーりつ悪いです。今はこれで勘弁
+function spinAc(a1,spin){
+    var a2 = [[0,0],[0,0],[0,0],[0,0]];
+subsAddPos4(a2,a1,spin[0]);
+    //↑本来は無名関数とかがいいのだろうけど書いてしまった…メンゴ(多分ここだけではない。)
+    if(checkPos4(a2)){
+        subsPos4(a1,a2);
+        nextSpin = spin[1];
+        if(nextFix) nextFix*=0.7;
+    }else if(checkPos4(subMoveAc(a2,4))){
+        subsPos4(a1,a2);
+        nextSpin = spin[1];
+        if(nextFix) nextFix*=0.7;
+    }else{
+         subMoveAc(a2,5);
+        if(checkPos4(subMoveAc(a2,5))){
+        subsPos4(a1,a2);
+        nextSpin = spin[1];
+        if(nextFix) nextFix*=0.7;
+        }
+    }
+}
+
+// 移動関数
+function subMoveAc(a,dir){
+    switch(dir){
+        // upはSRS用に一応残しておく。多分使わない。
+        case 3:
+            subsPos4(a,[[a[0][0],a[0][1]-1],[a[1][0],a[1][1]-1],[a[2][0],a[2][1]-1],[a[3][0],a[3][1]-1]]);
+            break;
+        case 4:
+            subsPos4(a,[[a[0][0]+1,a[0][1]],[a[1][0]+1,a[1][1]],[a[2][0]+1,a[2][1]],[a[3][0]+1,a[3][1]]]);
+            break;
+        case 5:
+            subsPos4(a,[[a[0][0]-1,a[0][1]],[a[1][0]-1,a[1][1]],[a[2][0]-1,a[2][1]],[a[3][0]-1,a[3][1]]]);
+            break;
+        case 6:
+        default:
+            subsPos4(a,[[a[0][0],a[0][1]+1],[a[1][0],a[1][1]+1],[a[2][0],a[2][1]+1],[a[3][0],a[3][1]+1]]);
+            break;
+    }
+    return a;
+}
+
+// グローバル変数等③
+
+var btState = 0; // ボタンの状態
+var preBtState = 0;
+var btCharge = false;
+var dateObj;
+var startTime; // main関数で初期化
+var pressTime; // ボタンを連続で押している時間。
+var dropG = (1/90);
+
+function getPsTime(){
+    dateObj = new Date();
+    return dateObj.getTime();
+}
+
+var prePastTime = 0;
+var pastTime;
+function showPastTime(){
+    pastTime = parseInt((getPsTime() - startTime)/1000);
+    if(prePastTime<pastTime){
+        document.getElementById("min").innerHTML = parseInt(pastTime/60);
+        document.getElementById("sec").innerHTML = pastTime % 60;
+        prePastTime = pastTime;
+    }
+}
+
+// 処理関数群
+var preAcm = [[0,0],[0,0],[0,0],[0,0]];
+
+function showAc(){
+    preAcm.forEach(function(p){
+        elMass[p[1]][p[0]].style.background = "#FFFFFF";
+    });
+    subsPos4(preAcm,acm);
+    acm.forEach(function(p){
+        elMass[p[1]][p[0]].style.background = blockColor;
+    });
+}
+
+var ghosts = [[0,0],[0,0],[0,0],[0,0]];
+var preGhosts = [[0,0],[0,0],[0,0],[0,0]];
+var ghostFlag = true;
+
+function showGhost(){
+    if(ghostFlag){
+        preGhosts.forEach(function(p){
+            elMass[p[1]][p[0]].style.border = "";
+        });
+        subsPos4(ghosts,acm);
+        while(checkPos4(ghosts)){
+            addPos4(ghosts,[[0,1],[0,1],[0,1],[0,1]]);
+        }
+        addPos4(ghosts,[[0,-1],[0,-1],[0,-1],[0,-1]]);
+        subsPos4(preGhosts,ghosts);
+        ghosts.forEach(function(p){
+            elMass[p[1]][p[0]].style.border = "1px dotted gray";
+        });
+    }else{
+        ghosts.forEach(function(p){
+            elMass[p[1]][p[0]].style.border = "";
+        });
+    }
+}
+
+var nextFix = false;
+
+function fixCheck(){
+    if(nextFix>=(1/dropG)*0.5){
+        if(!moveAc(6)){
+            fixAc();
+        }else{ // Improve1_1
+            nextFix = false;
+        }
+    }else if(nextFix){
+        nextFix++;
+    }
+}
+
+function fixAc(){
+    ghostFlag = false;
+    acm.forEach(function(p){
+        table[p[1]][p[0]] = 0;
+        elMass[p[1]][p[0]].style.background = blockColor; // 駄目押しで一応
+    });
+    lineCheck();
+}
+
+function showNextMino(k){
+    nextMass.forEach(function(y){
+        y.forEach(function(x){
+            x.style.background = "#FFFFFF";
+        });
+    });
+    mino[k].start.forEach(function(p){
+        nextMass[p[1]][p[0]-4].style.background = mino[k].color;
+    });
+}
+
+// サイトからそのまま
+function shuffle(array) {
+  var n = array.length, t, i;
+
+  while (n) {
+    i = Math.floor(Math.random() * n--);
+    t = array[n];
+    array[n] = array[i];
+    array[i] = t;
+  }
+}
+
+var minoKind = ["t","j","l","z","s","i","o"];
+var shuffleArray = [[0,1,2,3,4,5,6],[0,1,2,3,4,5,6]];
+shuffle(shuffleArray[0]);
+var minoIndex = 0;
+var shuffleSwitch = false;
+var nx;
+
+function minoGenerator(){
+    if(minoIndex == 3) shuffle(shuffleArray[(!shuffleSwitch)+1-1]);
+    if(minoIndex==7){
+        minoIndex=0;
+        shuffleSwitch = !shuffleSwitch;
+    }
+    nx = minoIndex + 1;
+    if(nx<7){
+        showNextMino(minoKind[shuffleArray[shuffleSwitch+1-1][nx]]);
+    }else{
+        showNextMino(minoKind[shuffleArray[(!shuffleSwitch)+1-1][0]]);
+    }
+
+    return minoKind[shuffleArray[shuffleSwitch+1-1][minoIndex++]];
+}
+
+function dropStart(){
+    var m = minoGenerator();
+    if(!checkPos4(mino[m]["start"])){
+        showNextMino(m);
+        return false;
+    }
+    subsPos4(acm,mino[m]["start"]);
+    subsPos4(preAcm,mino[m]["start"]);
+    nextFix = false;
+    dropCount = 0;
+    nextSpin = 0;
+    ghostFlag = true;
+    bsk = mino[m]["spin"];
+    blockColor = mino[m]["color"];
+    return true;
+}
+
+var dropCount = 0;
+
+function dropByG(){
+    dropCount++;
+    if(dropCount>=(1/dropG)){
+        if(moveAc(6)){
+            dropCount = 0;
+        }else if(!nextFix){
+            dropCount = 0;
+            nextFix = 1;
+        }
+    }
+}
+
+var lineClearArray = [];
+
+function lineCheck(){
+    var cleared = 0;
+    for(var y=1;(y<21)&&(cleared<4);y++){
+        var x;
+        for(x=1;x<11;x++){
+            if(checkPos([x,y])){
+                break;
+            }
+        }
+        if(x==11){
+            lineClearArray.push(y);
+            cleared++;
+            addElLines();
+        }
+    }
+    if(cleared>0){
+        switch(cleared){
+            case 1: addElScore(10);
+                    break;
+            case 2: addElScore(25);
+                    break;
+            case 3: addElScore(40);
+                    break;
+            case 4: addElScore(70);
+                    break;
+        }
+        func = clearing;
+    }else{
+        func = setting;
+    }
+}
+
+function lineWhite(){
+    lineClearArray.forEach(function(l){
+        for(var x=1;x<11;x++){
+            elMass[l][x].style.background = "#FFFFFF";
+        }
+    });
+}
+
+function lineClear(){
+    lineClearArray.forEach(function(l){
+        elMass[0].forEach(function(m){
+            m.style.background = "#FFFFFF";
+        });
+        for(var y=l;y>0;y--){
+            for(var x=1;x<11;x++){
+                table[y][x] = table[y-1][x];
+                elMass[y][x].style.background = elMass[y-1][x].style.background;
+            }
+        }
+    });
+}
+
+var func = setting;
+
+function dropping(){
+    btCheck();
+    fixCheck();
+    dropByG();
+    showAc();
+    showGhost();
+}
+
+var clearPhase = 0;
+var clearWait = 0;
+
+function clearing(){
+    switch(clearPhase){
+        case 0: lineWhite();
+                clearPhase++;
+                break;
+        case 1: if(clearWait>=28){
+                    clearPhase++;
+                }else{
+                    clearWait++;
+                }
+                break;
+        case 2: lineClear();
+                lineClearArray = [];
+                clearPhase = 0;
+                clearWait = 0;
+                func = setting;
+                break;
+    }
+}
+
+var setPhase = 0;
+var setWait = 0;
+
+function setting(){
+    switch(setPhase){
+        case 0: if(setWait>=(1/dropG)*0.3){
+                    setPhase++;
+                }else{
+                    setWait++;
+                }
+                break;
+        case 1: if(!dropStart()){
+                    clearInterval(timer);
+                    showGameOver();
+                }
+                setPhase = 0;
+                setWait = 0;
+                func = dropping;
+                break;
+    }
+}
+
+// GameOver
+
+function showGameOver(){
+    fade();
+    Xfunc = closeGODialog;
+    EDBsty.visibility = "visible";
+    G4sty.display = "inline";
+}
+
+function closeGODialog(){
+    G4sty.display = "none";
+    EDBsty.visibility = "hidden";
+    removeFade();
+}
+
+// setInterval処理関数
+var timer;
+
+var oneFrame = function(){
+    func();
+    showPastTime();
+}
+
+initField();
+// setInterval
+timer = setInterval(function(){oneFrame();},(1000/60));
+// 時間の取得
+startTime = getPsTime();
+}
+
+window.onload = setGame;
+</script>
+</head>
+<body>
+</body>
+</html>
+
+<!-- Copytight (c) 2017 namnium All Rights Reserved. -->
